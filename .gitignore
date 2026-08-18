@@ -1,0 +1,17 @@
+# Environment
+.venv/
+__pycache__/
+*.pyc
+
+# Large data files - not needed in the repo, regeneratable via scripts
+data/raw/
+data/patches/
+data/lake_instances/*.npy
+data/validation/
+
+# Model checkpoint - only include if under ~50MB; otherwise host separately
+# (e.g. GitHub Release, Google Drive) and link to it from the README
+# best_unet_model.pt
+
+# OS files
+.DS_Store
