@@ -16,13 +16,11 @@ A deep learning pipeline for detecting, tracking, and identifying drainage event
 
 ---
 
-## Why this project
+## Background
 
-Supraglacial lake drainage events where meltwater ponding on the ice sheet surface suddenly drains through hydrofracture to the ice sheet bed  are an active area of glaciological research, with implications for ice flow dynamics and mass balance. This project builds a scoped, independent version of the detect → track → analyze pipeline used in that kind of research: CNN based segmentation on optical satellite imagery, cross date tracking of individual lakes, and identification of drainage events from the resulting time series.
+Supraglacial lake drainage events, where meltwater ponding on the ice sheet surface suddenly drains through hydrofracture to the ice sheet bed, are an active area of glaciological research, with implications for ice flow dynamics and mass balance. This project builds a scoped, independent version of the detect → track → analyze pipeline used in that kind of research: CNN based segmentation on optical satellite imagery, cross date tracking of individual lakes, and identification of drainage events from the resulting time series.
 
----
-
-## Pipeline overview
+## Method
 
 ```
 Sentinel-2 imagery (Earth Engine)
@@ -49,9 +47,37 @@ Drainage event detection (stability filtered)
 Validation against independent Greenland wide dataset
 ```
 
----
+**Tech stack:** Python · PyTorch (U-Net, trained on Apple Silicon MPS) · Google Earth Engine API · rasterio · scipy (connected-component labeling) · pandas · matplotlib
 
-## Key results
+### Methodology notes (the debugging trail matters here)
+
+This project's real value isn't just the final numbers, it's the iterative validation process used to get there. A few examples that shaped the final methodology:
+
+- **Naive NDWI thresholding failed initially**, flagging dry snow as "lake" due to a known spectral artifact (snow's slight green/NIR reflectance asymmetry). Adding a SWIR band didn't fix it: SWIR can't distinguish snow from water, only water+snow from rock/cloud. The actual fix was a **red band brightness constraint**: liquid water absorbs red light strongly, snow/ice reflects it, confirmed via histogram analysis showing a clean bimodal separation.
+- **Whole scene cloud filters weren't AOI-specific.** Several dates showed implausible area crashes that instantly recovered the next scene. A mask overlay visualization confirmed cloud was concentrated specifically over the lake dense melt zone even when overall scene cloud cover passed the standard threshold.
+- **Raw model predictions produced ~36,000 "lake instances"** across the season, mostly speckle noise from the model's ~13% false positive rate. A size distribution histogram showed no clean noise/signal separation (consistent with real power law lake size distributions), so **temporal persistence** (requiring a lake to be matched across multiple dates) did the real filtering work instead.
+- **Naive drainage detection flagged 67% of tracks** as "draining," which isn't physically credible. Visual inspection of example curves revealed specific failure patterns (instant single frame spikes, fragile 2-point tracks, repeated oscillation); each was addressed with a targeted, physically motivated filter rather than an arbitrary threshold tweak.
+- **External validation against an independent Greenland wide dataset (Qiu & Ran, 2023) revealed a real, only partially explained ~6-10x discrepancy** in absolute lake area. Rather than dismissing or hiding this, it was investigated (geometric footprint check, literature cross reference) and is documented as an open limitation, see below.
+- **Cross checking the tracking output through two independently built visualizations (a spatial map and a seasonal summary plot) surfaced a real data bug.** The two figures reported inconsistent event counts from the same underlying data, which shouldn't happen. Root cause: the cross date matching logic allowed one lake to incorrectly split into multiple tracks under the same ID (~17% of tracking rows affected). Fixed via strict one-to-one matching, verified with an automated zero duplicates check. All downstream results were regenerated and finalized after the fix. This is arguably the most important debugging step in the project: proof that validating a pipeline from multiple independent angles catches real errors that a single sanity check would miss.
+
+<details>
+<summary><b>Diagnostic evidence (click to expand)</b>: the figures behind the claims above</summary>
+
+**Labeling fix**: red band histogram showing the clean bimodal separation (dark water/terrain vs. bright snow/ice) that justified adding a red band constraint:
+
+![Red band histogram](figures/diagnostics/red_band_histogram.png)
+
+**Cloud contamination diagnosis**: magenta overlay showing cloud/shadow concentrated specifically over the lake dense melt zone, invisible to whole scene cloud filters:
+
+![Cloud mask overlay](figures/diagnostics/suspect_dates_mask_overlay.png)
+
+**Noise vs. signal diagnosis**: lake instance size distribution showing no clean size based cutoff between real lakes and speckle noise, motivating the persistence based filtering approach in Phase 4:
+
+![Lake instance size histogram](figures/diagnostics/lake_instance_size_histogram.png)
+
+</details>
+
+## Key finding
 
 | Metric | Value |
 |---|---|
@@ -68,31 +94,31 @@ Validation against independent Greenland wide dataset
 
 ![Spatial drainage map](figures/spatial_drainage_map.png)
 
-Detected drainage event locations overlaid on a mid season Sentinel-2 scene events cluster along the ice margin and melt zone, as expected physically.
+Detected drainage event locations overlaid on a mid season Sentinel-2 scene: events cluster along the ice margin and melt zone, as expected physically.
 
 ### Season overview
 
 ![Seasonal summary](figures/seasonal_summary_hero.png)
 
-Total tracked lake area across the season with high confidence drainage events marked ties detection and drainage into a single narrative view.
+Total tracked lake area across the season, with high confidence drainage events marked, ties detection and drainage into a single narrative view.
 
 ### Training performance
 
 ![Training curves](figures/training_curves.png)
 
-Training and validation loss track closely for the first several epochs; later validation noise was diagnosed as a small validation set effect (only 4 distinct dates), not overfitting confirmed by clean held out test set performance below.
+Training and validation loss track closely for the first several epochs; later validation noise was diagnosed as a small validation set effect (only 4 distinct dates), not overfitting, confirmed by clean held out test set performance below.
 
 ### Model predictions vs. ground truth
 
 ![Test set qualitative predictions](figures/test_predictions_qualitative.png)
 
-Held out test set (6 dates, never seen during training/validation) predicted lake masks closely track ground truth across both large single lakes and scattered small ponds.
+Held out test set (6 dates, never seen during training/validation): predicted lake masks closely track ground truth across both large single lakes and scattered small ponds.
 
 ### Drainage detection examples
 
 ![Example drainage event curves](figures/drainage_examples_v2.png)
 
-Representative high confidence drainage events: gradual lake fill over multiple observations, followed by a sharp, non recovering area collapse the physical signature of hydrofracture drainage.
+Representative high confidence drainage events: gradual lake fill over multiple observations, followed by a sharp, non recovering area collapse, the physical signature of hydrofracture drainage.
 
 ### Drainage events across the season
 
@@ -102,50 +128,16 @@ Representative high confidence drainage events: gradual lake fill over multiple 
 
 ![Validation comparison](figures/validation_comparison.png)
 
-Comparison against an independent Greenland wide dataset (Qiu & Ran, 2023) for the same region/season a real, only partially explained discrepancy in absolute lake area (see Limitations below).
+Comparison against an independent Greenland wide dataset (Qiu & Ran, 2023) for the same region/season: a real, only partially explained discrepancy in absolute lake area (see Limitations below).
 
----
-
-## Methodology notes (the debugging trail matters here)
-
-This project's real value isn't just the final numbers it's the iterative validation process used to get there. A few examples that shaped the final methodology:
-
-- **Naive NDWI thresholding failed initially**, flagging dry snow as "lake" due to a known spectral artifact (snow's slight green/NIR reflectance asymmetry). Adding a SWIR band didn't fix it SWIR can't distinguish snow from water, only water+snow from rock/cloud. The actual fix was a **red band brightness constraint**: liquid water absorbs red light strongly, snow/ice reflects it confirmed via histogram analysis showing a clean bimodal separation.
-- **Whole scene cloud filters weren't AOI-specific.** Several dates showed implausible area crashes that instantly recovered the next scene a mask overlay visualization confirmed cloud was concentrated specifically over the lake dense melt zone even when overall scene cloud cover passed the standard threshold.
-- **Raw model predictions produced ~36,000 "lake instances"** across the season mostly speckle noise from the model's ~13% false positive rate. A size distribution histogram showed no clean noise/signal separation (consistent with real power law lake size distributions), so **temporal persistence**  requiring a lake to be matched across multiple dates  did the real filtering work instead.
-- **Naive drainage detection flagged 67% of tracks** as "draining," which isn't physically credible. Visual inspection of example curves revealed specific failure patterns (instant single frame spikes, fragile 2-point tracks, repeated oscillation) each was addressed with a targeted, physically motivated filter rather than an arbitrary threshold tweak.
-- **External validation against an independent Greenland wide dataset (Qiu & Ran, 2023) revealed a real, only partially explained ~6-10x discrepancy** in absolute lake area. Rather than dismissing or hiding this, it was investigated (geometric footprint check, literature cross reference) and is documented as an open limitation see below.
-- **Cross checking the tracking output through two independently built visualizations (a spatial map and a seasonal summary plot) surfaced a real data bug** — the two figures reported inconsistent event counts from the same underlying data, which shouldn't happen. Root cause: the cross date matching logic allowed one lake to incorrectly split into multiple tracks under the same ID (~17% of tracking rows affected). Fixed via strict one-to-one matching, verified with an automated zero duplicates check. All downstream results were regenerated and finalized after the fix. This is arguably the most important debugging step in the project proof that validating a pipeline from multiple independent angles catches real errors that a single sanity check would miss.
-
-<details>
-<summary><b>Diagnostic evidence (click to expand)</b> the figures behind the claims above</summary>
-
-**Labeling fix** - red band histogram showing the clean bimodal separation (dark water/terrain vs. bright snow/ice) that justified adding a red band constraint:
-
-![Red band histogram](figures/diagnostics/red_band_histogram.png)
-
-**Cloud contamination diagnosis** — magenta overlay showing cloud/shadow concentrated specifically over the lake dense melt zone, invisible to whole scene cloud filters:
-
-![Cloud mask overlay](figures/diagnostics/suspect_dates_mask_overlay.png)
-
-**Noise vs. signal diagnosis** — lake instance size distribution showing no clean size based cutoff between real lakes and speckle noise, motivating the persistence based filtering approach in Phase 4:
-
-![Lake instance size histogram](figures/diagnostics/lake_instance_size_histogram.png)
-
-</details>
-
----
-
-## Known limitations
+## Limitations
 
 - **Single region, single season.** All training and validation data comes from one AOI and one melt year. Model generalization to other regions/seasons is untested.
 - **Validation season-scale discrepancy is unresolved.** Our detected lake area is ~6-10x higher than an independent dataset's estimate for the same region/season. Investigation ruled out a geometric comparison artifact; plausible contributing factors include resolution differences (10m vs. 30m Landsat), sampling density (31 vs. 7 usable dates), and possible false positive inflation in our own pipeline (test precision: 87%). Flagged as a priority for future work.
-- **Small validation set during training** (4 dates) caused visible noise in validation loss during training mitigated by checkpoint selection, confirmed not to be true overfitting via clean test set performance, but a larger validation set would be more robust.
-- **~25% of tracked lakes** appear in only the minimum 2 dates required for persistence borderline cases treated with appropriate caution in the drainage catalog.
+- **Small validation set during training** (4 dates) caused visible noise in validation loss during training, mitigated by checkpoint selection, confirmed not to be true overfitting via clean test set performance, but a larger validation set would be more robust.
+- **~25% of tracked lakes** appear in only the minimum 2 dates required for persistence; borderline cases treated with appropriate caution in the drainage catalog.
 
----
-
-## Repo structure
+## Repository structure
 
 ```
 supraglacial-lake-monitor/
@@ -169,17 +161,28 @@ supraglacial-lake-monitor/
 └── *.csv                           Output result tables
 ```
 
----
+## Reproduction
+
+[This repo didn't have a Reproduction/Setup section in the original README, unlike the rest of the portfolio. Based on the repository structure above, the scripts appear to run in numbered order — please verify and fill in the actual steps, something like:]
+
+```bash
+pip install -r requirements.txt
+python3 01_s2_data_pull.py
+python3 02_ndwi_labeling.py
+# ... through 12_seasonal_summary_hero.py, in numbered order
+```
+
+Requires a Google Earth Engine account with API access enabled [confirm authentication steps match your other repos].
 
 ## Data sources
 
-- **Sentinel-2 L2A** (ESA/Copernicus) via Google Earth Engine
-- **Qiu, J. & Ran, J. (2023).** *Greenland-wide assessment of supraglacial lake area fluctuations between 2017 and 2022.* Zenodo. [doi.org/10.5281/zenodo.13924069](https://doi.org/10.5281/zenodo.13924069). CC BY 4.0. Used for external validation.
+- European Space Agency/Copernicus. Sentinel-2 L2A Surface Reflectance [Data set]. Retrieved via Google Earth Engine, accessed [add your access date].
+- Qiu, J., & Ran, J. (2023). *Greenland-wide assessment of supraglacial lake area fluctuations between 2017 and 2022* [Data set]. Zenodo. https://doi.org/10.5281/zenodo.13924069. CC BY 4.0. Used for external validation.
 
-## Tech stack
+## Citation
 
-Python · PyTorch (U-Net, trained on Apple Silicon MPS) · Google Earth Engine API · rasterio · scipy (connected-component labeling) · pandas · matplotlib
+If you use this repository, please cite it — see [`CITATION.cff`](CITATION.cff).
 
 ## License
 
-Code: MIT (add explicit LICENSE file if distributing). Sentinel-2 imagery: ESA/Copernicus open data. Validation dataset: CC BY 4.0, Qiu & Ran (2023).
+Code: MIT. Sentinel-2 imagery: ESA/Copernicus open data. Validation dataset: CC BY 4.0, Qiu & Ran (2023).
