@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software or its results, please cite it as below."
+title: "Supraglacial Lake Monitor"
+authors:
+  - family-names: "Jariwala"
+    given-names: "Shreya"
+    orcid: "https://orcid.org/[your ORCID iD]"
+version: "1.0.0"
+date-released: "[YYYY-MM-DD, matches your GitHub release date]"
+url: "https://github.com/ShreyaJari/supraglacial-lake-monitor"
+repository-code: "https://github.com/ShreyaJari/supraglacial-lake-monitor"
+license: MIT
+keywords:
+  - geoai
+  - remote-sensing
+  - earth-observation
+  - supraglacial-lakes
+  - u-net
+  - glacial-hydrology
+abstract: >
+  A deep learning pipeline detecting, tracking, and identifying drainage
+  events in supraglacial lakes on the Greenland Ice Sheet, using U-Net
+  segmentation of Sentinel-2 imagery to detect 117 high-confidence
+  drainage events across the 2019 melt season.
